@@ -49,12 +49,15 @@ class ReachyAudioInterface(AudioInterface):
     def start(self, input_callback):
         from reachy_mini import ReachyMini
 
-        # Start the daemon's hardware backend before connecting.
+        # Start the daemon's hardware backend and wake the robot.
         # Same as the old Go pipeline's EnsureReady().
         self._ensure_daemon_ready()
 
-        logger.info("connecting to Reachy...")
-        self.robot = ReachyMini(host=self.robot_host, port=8000)
+        # Auto-detect matches the old audio_bridge.py - tries localhost
+        # first, falls back to reachy-mini.local. More reliable than
+        # forcing a specific host.
+        logger.info("connecting to Reachy (auto-detect)...")
+        self.robot = ReachyMini()
 
         logger.info("waking up robot...")
         try:
