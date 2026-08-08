@@ -140,8 +140,13 @@ class ReachyAudioInterface(AudioInterface):
 
         base = f"http://{self.robot_host}:8000"
         logger.info("starting daemon backend at %s...", base)
+
+        # POST to /api/daemon/start?wake_up=true (GET returns 405).
         try:
-            urllib.request.urlopen(f"{base}/api/daemon/start?wake_up=true", timeout=5)
+            req = urllib.request.Request(
+                f"{base}/api/daemon/start?wake_up=true", method="POST"
+            )
+            urllib.request.urlopen(req, timeout=5)
         except Exception as e:
             logger.warning("daemon start request failed: %s (continuing...)", e)
 
