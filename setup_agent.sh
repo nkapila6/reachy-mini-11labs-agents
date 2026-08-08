@@ -12,11 +12,20 @@
 set -euo pipefail
 
 AGENT_NAME="${AGENT_NAME:-Reachy Form Filler}"
-AGENT_SLUG=$(echo "$AGENT_NAME" | tr '[:upper:] ' '[:lower:]-')
 
 echo "=== creating agent: $AGENT_NAME ==="
-elevenlabs agents add "$AGENT_NAME" --template voice-only --skip-upload
-echo "done"
+# agents add uploads to the platform by default (no --skip-upload in CLI v0.5.x).
+OUTPUT=$(elevenlabs agents add "$AGENT_NAME" --template voice-only 2>&1)
+echo "$OUTPUT"
+echo ""
+
+# Try to find the agent config file that was just created.
+AGENT_CONFIG=$(ls -t agent_configs/*.json 2>/dev/null | head -1)
+if [ -z "$AGENT_CONFIG" ]; then
+	echo "ERROR: no agent config found in agent_configs/"
+	exit 1
+fi
+echo "=== agent config: $AGENT_CONFIG ==="
 echo ""
 
 echo "=== adding client tools ==="
@@ -43,7 +52,6 @@ done
 echo ""
 
 echo "=== writing tool_ids into agent config ==="
-AGENT_CONFIG="agent_configs/${AGENT_SLUG}.json"
 if [ ! -f "$AGENT_CONFIG" ]; then
 	echo "  agent config not found at $AGENT_CONFIG"
 	echo "  available configs:"
@@ -106,7 +114,14 @@ echo "  written to $AGENT_CONFIG"
 echo ""
 
 echo "=== pushing agent to ElevenLabs ==="
-elevenlabs agents push --agent "$AGENT_SLUG"
+# agents push --agent takes an agent ID. Pull it from the config file's "id" field
+# if present, otherwise push all agents.
+AGENT_ID=$(python3 -c "import json; print(json.load(open('$AGENT_CONFIG')).get('id', ''))" 2>/dev/null || echo "")
+if [ -n "$AGENT_ID" ]; then
+	elevenlabs agents push --agent "$AGENT_ID"
+else
+	elevenlabs agents push
+fi
 echo ""
 
 echo "=== agent is live ==="
