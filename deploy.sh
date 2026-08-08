@@ -32,41 +32,53 @@ generate_env() {
 	echo "  Current values shown in brackets. Press Enter to keep, or type a new value."
 	echo ""
 
-	# Read current .env if it exists (for defaults).
-	declare -A CURRENT
+	# Read current .env values into plain variables (bash 3 compatible).
+	V_ELEVENLABS_API_KEY=""
+	V_AGENT_ID=""
+	V_PINCHTAB_URL=""
+	V_PINCHTAB_TOKEN=""
+	V_REACHY_HOST=""
+	V_REACHY_PORT=""
 	if [ -f .env ]; then
 		while IFS='=' read -r key value; do
 			[ -z "$key" ] && continue
-			[[ "$key" == \#* ]] && continue
-			CURRENT["$key"]="$value"
+			case "$key" in \#*) continue ;; esac
+			case "$key" in
+			ELEVENLABS_API_KEY) V_ELEVENLABS_API_KEY="$value" ;;
+			AGENT_ID) V_AGENT_ID="$value" ;;
+			PINCHTAB_URL) V_PINCHTAB_URL="$value" ;;
+			PINCHTAB_TOKEN) V_PINCHTAB_TOKEN="$value" ;;
+			REACHY_HOST) V_REACHY_HOST="$value" ;;
+			REACHY_PORT) V_REACHY_PORT="$value" ;;
+			esac
 		done <.env
 	fi
 
-	read -p "  ELEVENLABS_API_KEY [${CURRENT[ELEVENLABS_API_KEY]:-(required)}]: " INPUT
-	ELEVENLABS_API_KEY="${INPUT:-${CURRENT[ELEVENLABS_API_KEY]}}"
+	read -p "  ELEVENLABS_API_KEY [${V_ELEVENLABS_API_KEY:-(required)}]: " INPUT
+	ELEVENLABS_API_KEY="${INPUT:-$V_ELEVENLABS_API_KEY}"
 	if [ -z "$ELEVENLABS_API_KEY" ]; then
 		echo "  ERROR: ELEVENLABS_API_KEY is required"
 		exit 1
 	fi
 
-	read -p "  AGENT_ID [${CURRENT[AGENT_ID]:-(required)}]: " INPUT
-	AGENT_ID="${INPUT:-${CURRENT[AGENT_ID]:-}}"
+	read -p "  AGENT_ID [${V_AGENT_ID:-(required)}]: " INPUT
+	AGENT_ID="${INPUT:-$V_AGENT_ID}"
 	if [ -z "$AGENT_ID" ]; then
 		echo "  ERROR: AGENT_ID is required"
 		exit 1
 	fi
 
-	read -p "  PINCHTAB_URL [${CURRENT[PINCHTAB_URL]:-http://pinchtab-pc:9867}]: " INPUT
-	PINCHTAB_URL="${INPUT:-${CURRENT[PINCHTAB_URL]:-http://pinchtab-pc:9867}}"
+	read -p "  PINCHTAB_URL [${V_PINCHTAB_URL:-http://pinchtab-pc:9867}]: " INPUT
+	PINCHTAB_URL="${INPUT:-${V_PINCHTAB_URL:-http://pinchtab-pc:9867}}"
 
-	read -p "  PINCHTAB_TOKEN [${CURRENT[PINCHTAB_TOKEN]:-reachy-mini-formfill-2026}]: " INPUT
-	PINCHTAB_TOKEN="${INPUT:-${CURRENT[PINCHTAB_TOKEN]:-reachy-mini-formfill-2026}}"
+	read -p "  PINCHTAB_TOKEN [${V_PINCHTAB_TOKEN:-reachy-mini-formfill-2026}]: " INPUT
+	PINCHTAB_TOKEN="${INPUT:-${V_PINCHTAB_TOKEN:-reachy-mini-formfill-2026}}"
 
-	read -p "  REACHY_HOST [${CURRENT[REACHY_HOST]:-localhost}]: " INPUT
-	REACHY_HOST="${INPUT:-${CURRENT[REACHY_HOST]:-localhost}}"
+	read -p "  REACHY_HOST [${V_REACHY_HOST:-localhost}]: " INPUT
+	REACHY_HOST="${INPUT:-${V_REACHY_HOST:-localhost}}"
 
-	read -p "  REACHY_PORT [${CURRENT[REACHY_PORT]:-8000}]: " INPUT
-	REACHY_PORT="${INPUT:-${CURRENT[REACHY_PORT]:-8000}}"
+	read -p "  REACHY_PORT [${V_REACHY_PORT:-8000}]: " INPUT
+	REACHY_PORT="${INPUT:-${V_REACHY_PORT:-8000}}"
 
 	echo ""
 	echo "=== .env summary ==="
