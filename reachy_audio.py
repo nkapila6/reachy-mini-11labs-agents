@@ -153,10 +153,12 @@ class ReachyAudioInterface(AudioInterface):
         if self._on_speaking_change and not self._is_speaking:
             self._is_speaking = True
             self._on_speaking_change(True)
+            logger.info("TTS audio started")
         self._last_audio_time = time.time()
 
     def interrupt(self):
         # Drop any buffered agent audio and flush the hardware player.
+        logger.info("interrupt: clearing audio")
         while not self._output_queue.empty():
             try:
                 self._output_queue.get_nowait()
@@ -226,6 +228,7 @@ class ReachyAudioInterface(AudioInterface):
             logger.warning("audio DSP config error: %s", e)
 
     def _mic_loop(self):
+        chunk_count = 0
         while not self._stop_event.is_set():
             try:
                 frame = self.robot.media.get_audio_sample()
@@ -249,6 +252,13 @@ class ReachyAudioInterface(AudioInterface):
             if self.input_callback is not None:
                 self.input_callback(frame.tobytes())
 
+            # Log audio level every 50 chunks (~1.5s) so we can see if the
+            # mic is picking up sound.
+            chunk_count += 1
+            if chunk_count % 50 == 1:
+                rms = float(np.sqrt(np.mean(frame.astype(np.float32) ** 2)))
+                logger.info("mic: rms=%.1f chunk=%d", rms, chunk_count)
+
             # Yield so other threads can run; the SDK will chunk as needed.
             time.sleep(0)
 
@@ -269,6 +279,11 @@ class ReachyAudioInterface(AudioInterface):
         try:
             pcm = np.frombuffer(audio, dtype=np.int16).astype(np.float32) / 32768.0
             pcm = np.clip(pcm * OUTPUT_VOLUME_BOOST, -1.0, 1.0)
+            logger.info(
+                "playing TTS: %d bytes (peak=%.3f)",
+                len(audio),
+                float(np.max(np.abs(pcm))),
+            )
             self.robot.media.push_audio_sample(pcm)
         except Exception as e:
             logger.warning("playback failed: %s", e)
