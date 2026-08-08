@@ -63,8 +63,10 @@ class ReachyAudioInterface(AudioInterface):
 
         self._ensure_daemon_ready()
 
+        # Disable automatic_body_yaw so the SDK doesn't fight our
+        # MotionController for head/body control.
         logger.info("connecting to Reachy (auto-detect)...")
-        self.robot = ReachyMini()
+        self.robot = ReachyMini(automatic_body_yaw=False)
 
         logger.info("waking up robot...")
         try:
@@ -72,6 +74,14 @@ class ReachyAudioInterface(AudioInterface):
             self.robot.wake_up()
         except Exception as e:
             logger.warning("wake_up failed: %s", e)
+
+        # Disable the SDK's built-in head wobbler - our MotionController
+        # handles speech-driven motion.
+        try:
+            self.robot.media.audio.disable_wobbling()
+            logger.info("head wobbler disabled")
+        except Exception as e:
+            logger.warning("could not disable head wobbler: %s", e)
 
         logger.info("starting media pipelines...")
         self.robot.media.start_recording()

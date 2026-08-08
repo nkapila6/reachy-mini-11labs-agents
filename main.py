@@ -84,11 +84,25 @@ def main():
         default=False,
         help="Disable audio (text-only mode for testing)",
     )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        default=False,
+        help="Enable debug logging",
+    )
     args = parser.parse_args()
 
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s: %(message)s")
-    # Silence noisy loggers so the important stuff is visible.
-    logging.getLogger("httpx").setLevel(logging.WARNING)
+    if args.debug:
+        logging.basicConfig(
+            level=logging.DEBUG, format="%(asctime)s %(name)s: %(message)s"
+        )
+    else:
+        logging.basicConfig(
+            level=logging.INFO, format="%(asctime)s %(name)s: %(message)s"
+        )
+    # Show httpx requests so we can see the signed URL fetch + WS connect.
+    logging.getLogger("httpx").setLevel(logging.INFO)
+    # Keep reachy_mini SDK logs quiet except for warnings.
     logging.getLogger("reachy_mini").setLevel(logging.WARNING)
 
     if not args.agent_id:
