@@ -5,15 +5,20 @@ calls them by name to navigate pages, fill forms, click elements, and inspect
 the page state through pinchtab's accessibility snapshot.
 """
 
+import os
+
 import requests
 
 from elevenlabs.conversational_ai.conversation import ClientTools
 
 
 class PinchTabClient:
-    def __init__(self, base_url: str):
+    def __init__(self, base_url: str, token: str | None = None):
         self.base_url = base_url.rstrip("/")
         self.session = requests.Session()
+        # pinchtab uses Authorization: Bearer <token> on all API calls.
+        if token:
+            self.session.headers["Authorization"] = f"Bearer {token}"
         self.last_tab_id = None
 
     def navigate(self, url: str, tab_id: str = None) -> dict:
@@ -77,10 +82,10 @@ class PinchTabClient:
 pinchtab: PinchTabClient | None = None
 
 
-def init_pinchtab(base_url: str):
+def init_pinchtab(base_url: str, token: str | None = None):
     """Create the module-level pinchtab client."""
     global pinchtab
-    pinchtab = PinchTabClient(base_url)
+    pinchtab = PinchTabClient(base_url, token)
 
 
 def _active_tab_id(override: str | None = None) -> str | None:

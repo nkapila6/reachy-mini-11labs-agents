@@ -59,6 +59,11 @@ def main():
         help="PinchTab HTTP URL (env: PINCHTAB_URL)",
     )
     parser.add_argument(
+        "--pinchtab-token",
+        default=os.getenv("PINCHTAB_TOKEN"),
+        help="PinchTab auth token (env: PINCHTAB_TOKEN)",
+    )
+    parser.add_argument(
         "--reachy-host",
         default=os.getenv("REACHY_HOST", "localhost"),
         help="Reachy Mini daemon host (env: REACHY_HOST)",
@@ -91,12 +96,13 @@ def main():
     logger.info("  agent_id: %s", args.agent_id)
     logger.info("  api_key: %s", "***" if args.api_key else "(none - public agent)")
     logger.info("  pinchtab_url: %s", args.pinchtab_url)
+    logger.info("  pinchtab_token: %s", "***" if args.pinchtab_token else "(none)")
     logger.info("  reachy_host: %s:%d", args.reachy_host, args.reachy_port)
     logger.info("  motors: %s", "off" if args.no_motors else "on")
     logger.info("  audio: %s", "off" if args.no_audio else "on")
 
     # --- pinchtab client tools ---
-    init_pinchtab(args.pinchtab_url)
+    init_pinchtab(args.pinchtab_url, args.pinchtab_token)
     client_tools = ClientTools()
     register_tools(client_tools)
 
