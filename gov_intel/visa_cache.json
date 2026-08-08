@@ -1,0 +1,89 @@
+{
+  "extract:https://u.ae/en/information-and-services/visa-and-emirates-id/Types-of-visas/golden-visa": {
+    "fetched_at": 1723100000,
+    "data": {
+      "status": "ok",
+      "url": "https://u.ae/en/information-and-services/visa-and-emirates-id/Types-of-visas/golden-visa",
+      "data": {
+        "visa_type": "Golden visa",
+        "eligibility_categories": [
+          {
+            "category_name": "Investors (in public investments)",
+            "eligibility_requirements": "10 years residency; Minimum capital of AED 2 million; letter from an approved investment fund confirming a deposit of at least 2,000,000 AED, or valid commercial/industrial licence with company incorporation documents showing capital of at least 2,000,000 AED",
+            "validity_years": "10"
+          },
+          {
+            "category_name": "Investors (real estate)",
+            "eligibility_requirements": "5 years residency; property ownership proving ownership of one or more properties with combined value >= 2,000,000 AED (without loans); proof of residence in the UAE",
+            "validity_years": "5"
+          },
+          {
+            "category_name": "Entrepreneurs",
+            "eligibility_requirements": "5 years residency; proof of innovative or technical projects; documents proving project value (auditor's letter proving project value >= 500,000 AED); letter from an accredited business incubator",
+            "validity_years": "5"
+          },
+          {
+            "category_name": "Those with exceptional talent or rare specialisations",
+            "eligibility_requirements": "10 years residency; doctors, scientists, inventors, creatives, executives (salary >= 50,000 AED/mo & 5 yrs exp), athletes, PhD holders",
+            "validity_years": "10"
+          },
+          {
+            "category_name": "Outstanding students",
+            "eligibility_requirements": "High school achievers (95%+) for 5 years; top university students (GPA >= 3.8) for 10 years",
+            "validity_years": "5 or 10"
+          }
+        ],
+        "application_steps": [
+          "Check eligibility online via ICP smart services portal",
+          "Apply through ICP portal or GDRFA Dubai portal",
+          "Creatives can apply for recommendation via Ministry of Culture"
+        ],
+        "fees_or_validity": "5 or 10 years depending on category"
+      }
+    }
+  },
+  "extract:https://u.ae/en/information-and-services/visa-and-emirates-id/Types-of-visas/tourist-visa": {
+    "fetched_at": 1723100000,
+    "data": {
+      "status": "ok",
+      "url": "https://u.ae/en/information-and-services/visa-and-emirates-id/Types-of-visas/tourist-visa",
+      "data": {
+        "topic": "Tourist visa for Indian citizens",
+        "direct_answer": "Indian nationals who are not eligible for visa on arrival or visa-free entry must apply for a tourist visa through a UAE-based airline, a licensed travel agent, or a hotel. You can also apply online via the Federal Authority for Identity, Citizenship, Customs and Port Security (ICP) or GDRFA Dubai.",
+        "eligibility_criteria": [
+          "Sponsorship via airline, licensed travel agent, or hotel, or directly via ICP/GDRFA online portals",
+          "For 5-year multiple-entry tourist visa: bank balance of 4,000 USD or equivalent in the last 6 months",
+          "Valid health insurance applicable in the UAE for at least 180 days"
+        ],
+        "application_steps": [
+          "Choose channel: UAE-based airline, licensed travel agent, hotel, ICP smart services portal, or GDRFA Dubai portal",
+          "Submit passport copy, return flight ticket, and hotel booking",
+          "Receive electronic tourist visa via email"
+        ],
+        "fees_or_validity": "5-year multiple entry visa (90 days per visit) or 30/60-day single/multiple entry tourist visa"
+      }
+    }
+  },
+  "extract:https://u.ae/en/information-and-services/visa-and-emirates-id/Types-of-visas/residence-visa-for-studying-in-the-uae": {
+    "fetched_at": 1723100000,
+    "data": {
+      "status": "ok",
+      "url": "https://u.ae/en/information-and-services/visa-and-emirates-id/Types-of-visas/residence-visa-for-studying-in-the-uae",
+      "data": {
+        "visa_type": "student visa",
+        "direct_answer": "Student visas are issued for accredited university or college students in the UAE. Universities facilitate the application process directly.",
+        "eligibility_criteria": [
+          "Submit an official certificate issued by the university or institute specifying the study duration",
+          "Can be sponsored by a parent who is a UAE resident or directly by the accredited university/college",
+          "Meet general residence visa medical fitness and Emirates ID requirements"
+        ],
+        "application_steps": [
+          "Obtain admission and study duration certificate from accredited university",
+          "University submits visa application to ICP or GDRFA on student's behalf",
+          "Complete medical fitness test and Emirates ID biometric registration"
+        ],
+        "processing_time": "Varies by institution; typically processed within 2 to 4 weeks upon submission of all required documents."
+      }
+    }
+  }
+}
