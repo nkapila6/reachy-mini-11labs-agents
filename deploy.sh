@@ -2,24 +2,106 @@
 # deploy.sh -- scp changed files to the Reachy Mini and sync the venv
 #
 # Compares SHA256 hashes to skip unchanged files.
-# Uses a single SSH session for all remote operations.
+# Prompts for .env values if .env is missing or --env is passed.
 #
 # Usage:
 #   ./deploy.sh
+#   ./deploy.sh --env          # re-enter .env values
 #   ROBOT=pollen@reachy-mini.local ./deploy.sh
 
 set -euo pipefail
 
 ROBOT="${ROBOT:-pollen@reachy-mini.local}"
 ROBOT_DIR="${ROBOT_DIR:-reachy-11labs-agent}"
+FORCE_ENV=false
+
+for arg in "$@"; do
+	case $arg in
+	--env) FORCE_ENV=true ;;
+	esac
+done
 
 # Load SSH key into agent so we only enter the passphrase once.
 if ! ssh-add -l 2>/dev/null | grep -q "id_ed25519"; then
 	ssh-add ~/.ssh/id_ed25519 2>/dev/null || true
 fi
 
+# --- .env generation ---
+generate_env() {
+	echo "=== .env setup ==="
+	echo "  Current values shown in brackets. Press Enter to keep, or type a new value."
+	echo ""
+
+	# Read current .env if it exists (for defaults).
+	declare -A CURRENT
+	if [ -f .env ]; then
+		while IFS='=' read -r key value; do
+			[ -z "$key" ] && continue
+			[[ "$key" == \#* ]] && continue
+			CURRENT["$key"]="$value"
+		done <.env
+	fi
+
+	read -p "  ELEVENLABS_API_KEY [${CURRENT[ELEVENLABS_API_KEY]:-(required)}]: " INPUT
+	ELEVENLABS_API_KEY="${INPUT:-${CURRENT[ELEVENLABS_API_KEY]}}"
+	if [ -z "$ELEVENLABS_API_KEY" ]; then
+		echo "  ERROR: ELEVENLABS_API_KEY is required"
+		exit 1
+	fi
+
+	read -p "  AGENT_ID [${CURRENT[AGENT_ID]:-(required)}]: " INPUT
+	AGENT_ID="${INPUT:-${CURRENT[AGENT_ID]:-}}"
+	if [ -z "$AGENT_ID" ]; then
+		echo "  ERROR: AGENT_ID is required"
+		exit 1
+	fi
+
+	read -p "  PINCHTAB_URL [${CURRENT[PINCHTAB_URL]:-http://pinchtab-pc:9867}]: " INPUT
+	PINCHTAB_URL="${INPUT:-${CURRENT[PINCHTAB_URL]:-http://pinchtab-pc:9867}}"
+
+	read -p "  PINCHTAB_TOKEN [${CURRENT[PINCHTAB_TOKEN]:-reachy-mini-formfill-2026}]: " INPUT
+	PINCHTAB_TOKEN="${INPUT:-${CURRENT[PINCHTAB_TOKEN]:-reachy-mini-formfill-2026}}"
+
+	read -p "  REACHY_HOST [${CURRENT[REACHY_HOST]:-localhost}]: " INPUT
+	REACHY_HOST="${INPUT:-${CURRENT[REACHY_HOST]:-localhost}}"
+
+	read -p "  REACHY_PORT [${CURRENT[REACHY_PORT]:-8000}]: " INPUT
+	REACHY_PORT="${INPUT:-${CURRENT[REACHY_PORT]:-8000}}"
+
+	echo ""
+	echo "=== .env summary ==="
+	echo "  ELEVENLABS_API_KEY = $ELEVENLABS_API_KEY"
+	echo "  AGENT_ID           = $AGENT_ID"
+	echo "  PINCHTAB_URL       = $PINCHTAB_URL"
+	echo "  PINCHTAB_TOKEN     = $PINCHTAB_TOKEN"
+	echo "  REACHY_HOST        = $REACHY_HOST"
+	echo "  REACHY_PORT        = $REACHY_PORT"
+	echo ""
+
+	# Heredoc must not be indented - EOF at column 0.
+	cat >.env <<EOF
+# ElevenLabs agent
+ELEVENLABS_API_KEY=$ELEVENLABS_API_KEY
+AGENT_ID=$AGENT_ID
+
+# PinchTab (separate PC on the LAN running headed Chrome)
+PINCHTAB_URL=$PINCHTAB_URL
+PINCHTAB_TOKEN=$PINCHTAB_TOKEN
+
+# Reachy Mini robot
+REACHY_HOST=$REACHY_HOST
+REACHY_PORT=$REACHY_PORT
+EOF
+	echo "  written to .env"
+	echo ""
+}
+
+if [ "$FORCE_ENV" = true ] || [ ! -f .env ]; then
+	generate_env
+fi
+
 # Python source + config files to sync.
-FILES="main.py reachy_audio.py pinchtab_tools.py pyproject.toml .env"
+FILES="main.py reachy_audio.py motion.py pinchtab_tools.py pyproject.toml .env"
 
 echo "=== checking robot prerequisites ==="
 # Ensure the daemon's Python 3.12 exists (uv-managed, can get deleted).
@@ -83,6 +165,12 @@ ssh "$ROBOT" "cd $ROBOT_DIR && /opt/uv/uv sync"
 echo "venv ready"
 
 echo ""
-echo "=== to run ==="
+echo "=== deploy complete ==="
+echo ""
+echo "To run on the robot:"
 echo "  ssh $ROBOT"
 echo "  cd $ROBOT_DIR && /opt/uv/uv run reachy-agent"
+echo ""
+echo "Or with CLI overrides:"
+echo "  cd $ROBOT_DIR && /opt/uv/uv run reachy-agent --no-motors   # test without motors"
+echo "  cd $ROBOT_DIR && /opt/uv/uv run reachy-agent --no-audio   # text-only test"
