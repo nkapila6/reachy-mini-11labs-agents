@@ -46,16 +46,17 @@ class ReachyAudioInterface(AudioInterface):
         self._output_queue = Queue()
         self._stop_event = threading.Event()
 
-    def start(self, input_callback):
+    def _pre_start(self):
+        """Do the slow init (daemon, ReachyMini, media, DSP) before the session.
+
+        The SDK calls start() in its own thread, but the daemon + media pipeline
+        takes ~10s. By pre-starting, the mic/speaker are ready when the session
+        connects so the first greeting isn't lost.
+        """
         from reachy_mini import ReachyMini
 
-        # Start the daemon's hardware backend and wake the robot.
-        # Same as the old Go pipeline's EnsureReady().
         self._ensure_daemon_ready()
 
-        # Auto-detect matches the old audio_bridge.py - tries localhost
-        # first, falls back to reachy-mini.local. More reliable than
-        # forcing a specific host.
         logger.info("connecting to Reachy (auto-detect)...")
         self.robot = ReachyMini()
 
@@ -72,7 +73,6 @@ class ReachyAudioInterface(AudioInterface):
         time.sleep(1)
 
         self._apply_audio_config()
-        self.input_callback = input_callback
 
         try:
             self.input_sample_rate = self.robot.media.get_input_audio_samplerate()
@@ -83,15 +83,26 @@ class ReachyAudioInterface(AudioInterface):
                 "could not get sample rate, assuming %d Hz", self.input_sample_rate
             )
 
-        self._stop_event.clear()
-        self._mic_thread = threading.Thread(
-            target=self._mic_loop, name="reachy-mic", daemon=True
-        )
-        self._output_thread = threading.Thread(
-            target=self._output_loop, name="reachy-output", daemon=True
-        )
-        self._mic_thread.start()
-        self._output_thread.start()
+        self._pre_started = True
+
+    def start(self, input_callback):
+        # If pre-start was done, just wire the callback and start threads.
+        if getattr(self, "_pre_started", False):
+            self.input_callback = input_callback
+            self._stop_event.clear()
+            self._mic_thread = threading.Thread(
+                target=self._mic_loop, name="reachy-mic", daemon=True
+            )
+            self._output_thread = threading.Thread(
+                target=self._output_loop, name="reachy-output", daemon=True
+            )
+            self._mic_thread.start()
+            self._output_thread.start()
+            return
+
+        # Full start (fallback if pre_start wasn't called).
+        self._pre_start()
+        self.start(input_callback)
 
     def stop(self):
         logger.info("stopping Reachy audio interface...")

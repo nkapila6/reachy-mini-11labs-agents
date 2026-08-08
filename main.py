@@ -12,6 +12,7 @@ import logging
 import os
 import signal
 import sys
+import threading
 
 from elevenlabs.client import ElevenLabs
 from elevenlabs.conversational_ai.conversation import Conversation, ClientTools
@@ -107,9 +108,16 @@ def main():
     register_tools(client_tools)
 
     # --- robot audio interface ---
+    # Start audio BEFORE the conversation so the first message isn't lost.
+    # The SDK calls audio_interface.start() in its own thread, but the daemon
+    # + ReachyMini + media pipeline takes ~10s. Starting it here means the
+    # mic/speaker are ready when the session connects.
     audio_interface = None
     if not args.no_audio:
         audio_interface = ReachyAudioInterface(robot_host=args.reachy_host)
+        logger.info("pre-starting audio interface (daemon + media)...")
+        audio_interface._pre_start()
+        logger.info("audio interface ready")
 
     # --- motion controller ---
     motion = None
@@ -124,7 +132,6 @@ def main():
     # --- ElevenLabs client + conversation ---
     elevenlabs = ElevenLabs(api_key=args.api_key) if args.api_key else ElevenLabs()
 
-    # Build callback dict - include motion speaking toggle if motion is enabled
     callback_agent_response = lambda response: logger.info("Agent: %s", response)
     callback_user_transcript = lambda transcript: logger.info("User: %s", transcript)
 
@@ -142,7 +149,14 @@ def main():
     logger.info("starting session with agent %s...", args.agent_id)
     conversation.start_session()
 
+    # One-shot shutdown flag so Ctrl+C doesn't loop.
+    shutting_down = threading.Event()
+
     def shutdown(sig, frame):
+        if shutting_down.is_set():
+            # Second Ctrl+C: force exit.
+            os._exit(1)
+        shutting_down.set()
         logger.info("shutting down...")
         conversation.end_session()
         if motion:
