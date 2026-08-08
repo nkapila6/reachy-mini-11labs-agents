@@ -1,5 +1,9 @@
 #!/bin/bash
-# setup_agent.sh -- create the ElevenLabs agent, add client tools, attach them, push
+# setup_agent.sh -- create or update the ElevenLabs agent and client tools.
+#
+# Idempotent: if the agent and tools already exist (tracked in agents.json and
+# tools.json), reuses them instead of creating duplicates. Safe to run multiple
+# times.
 #
 # Prerequisites:
 #   npm install -g @elevenlabs/cli
@@ -13,57 +17,183 @@ set -euo pipefail
 
 AGENT_NAME="${AGENT_NAME:-Reachy Form Filler}"
 
-echo "=== creating agent: $AGENT_NAME ==="
-# agents add uploads to the platform by default (no --skip-upload in CLI v0.5.x).
-OUTPUT=$(elevenlabs agents add "$AGENT_NAME" --template voice-only 2>&1)
-echo "$OUTPUT"
-echo ""
+# --- check if the agent already exists (via agents.json) ---
+# agents.json is the CLI's source of truth for which agents we've created.
+# It maps config file paths to agent IDs. We check it by name match against
+# the config file's "name" field.
+AGENT_CONFIG=""
+AGENT_ID=""
 
-# Try to find the agent config file that was just created.
-AGENT_CONFIG=$(ls -t agent_configs/*.json 2>/dev/null | head -1)
-if [ -z "$AGENT_CONFIG" ]; then
-	echo "ERROR: no agent config found in agent_configs/"
-	exit 1
-fi
-echo "=== agent config: $AGENT_CONFIG ==="
-echo ""
-
-echo "=== adding client tools ==="
-TOOL_IDS=()
-TOOLS=("open_form" "fill_field" "click_element" "press_key" "get_page_snapshot" "get_page_text")
-
-for tool in "${TOOLS[@]}"; do
-	echo "  adding $tool..."
-	OUTPUT=$(elevenlabs tools add "$tool" --type client --config-path "./tool_configs/${tool}.json" 2>&1)
-	# The tool ID is typically a string like "tool_abc123..." - extract it.
-	TOOL_ID=$(echo "$OUTPUT" | grep -oE 'tool_[a-zA-Z0-9]+' | head -1)
-	if [ -z "$TOOL_ID" ]; then
-		# Fallback: try to find any hash-like ID in the output
-		TOOL_ID=$(echo "$OUTPUT" | grep -oE '"id"\s*:\s*"[^"]+"' | head -1 | grep -oE '[a-zA-Z0-9]{20,}')
+if [ -f "agents.json" ]; then
+	MATCH=$(python3 -c "
+import json, os, sys
+with open('agents.json') as f:
+    agents = json.load(f).get('agents', [])
+for a in agents:
+    cfg = a.get('config', '')
+    if not cfg or not os.path.exists(cfg):
+        continue
+    try:
+        with open(cfg) as cf:
+            name = json.load(cf).get('name', '')
+    except Exception:
+        continue
+    if name == '$AGENT_NAME':
+        print(f\"{cfg}|{a['id']}\")
+        break
+" 2>/dev/null || echo "")
+	if [ -n "$MATCH" ]; then
+		AGENT_CONFIG="${MATCH%%|*}"
+		AGENT_ID="${MATCH##*|}"
 	fi
-	if [ -z "$TOOL_ID" ]; then
-		echo "  ERROR: could not extract tool ID from output:"
-		echo "  $OUTPUT"
+fi
+
+if [ -n "$AGENT_ID" ]; then
+	echo "=== agent already exists: $AGENT_NAME ($AGENT_ID) ==="
+	echo "  config: $AGENT_CONFIG"
+	echo "  will update config and push."
+	echo ""
+else
+	echo "=== creating agent: $AGENT_NAME ==="
+	OUTPUT=$(elevenlabs agents add "$AGENT_NAME" --template voice-only 2>&1)
+	echo "$OUTPUT"
+	echo ""
+
+	# Find the agent config file (most recently created).
+	AGENT_CONFIG=$(ls -t agent_configs/*.json 2>/dev/null | head -1)
+	if [ -z "$AGENT_CONFIG" ]; then
+		echo "ERROR: no agent config found in agent_configs/"
 		exit 1
 	fi
-	echo "  -> $TOOL_ID"
-	TOOL_IDS+=("$TOOL_ID")
+
+	# Get the agent ID from agents.json (the CLI writes it there on creation).
+	AGENT_ID=$(python3 -c "
+import json
+with open('agents.json') as f:
+    agents = json.load(f).get('agents', [])
+for a in agents:
+    if a.get('config') == '$AGENT_CONFIG':
+        print(a['id'])
+        break
+" 2>/dev/null || echo "")
+	if [ -z "$AGENT_ID" ]; then
+		echo "ERROR: could not find agent ID for $AGENT_CONFIG in agents.json"
+		echo "  agents.json contents:"
+		cat agents.json
+		exit 1
+	fi
+	echo "=== agent config: $AGENT_CONFIG (id: $AGENT_ID) ==="
+	echo ""
+fi
+
+# --- tools: check tools.json for existing tools by name ---
+# tools.json tracks all tools we've created. We match by the tool name
+# appearing in the config path (e.g. ./tool_configs/open_form.json -> open_form).
+TOOLS=("open_form" "fill_field" "click_element" "press_key" "get_page_snapshot" "get_page_text" "web_search")
+
+echo "=== registering client tools ==="
+TOOL_IDS=()
+
+get_existing_tool_id() {
+	local name="$1"
+	if [ ! -f "tools.json" ]; then
+		echo ""
+		return
+	fi
+	python3 -c "
+import json
+with open('tools.json') as f:
+    data = json.load(f)
+for t in data.get('tools', []):
+    cfg_path = t.get('config', '')
+    if '${name}.json' in cfg_path:
+        print(t['id'])
+        break
+" 2>/dev/null || echo ""
+}
+
+for tool in "${TOOLS[@]}"; do
+	TOOL_CONFIG_FILE="./tool_configs/${tool}.json"
+	if [ ! -f "$TOOL_CONFIG_FILE" ]; then
+		echo "  ERROR: tool config not found: $TOOL_CONFIG_FILE"
+		exit 1
+	fi
+
+	EXISTING_TOOL_ID=$(get_existing_tool_id "$tool")
+
+	if [ -n "$EXISTING_TOOL_ID" ]; then
+		echo "  $tool: already exists ($EXISTING_TOOL_ID), reusing"
+		TOOL_IDS+=("$EXISTING_TOOL_ID")
+	else
+		# Back up the config - the CLI overwrites it with a default template.
+		cp "$TOOL_CONFIG_FILE" "${TOOL_CONFIG_FILE}.bak"
+		echo "  adding $tool..."
+		OUTPUT=$(elevenlabs tools add "$tool" --type client --config-path "$TOOL_CONFIG_FILE" 2>&1)
+		# Restore our real config immediately.
+		mv "${TOOL_CONFIG_FILE}.bak" "$TOOL_CONFIG_FILE"
+		TOOL_ID=$(echo "$OUTPUT" | grep -oE 'tool_[a-zA-Z0-9]+' | head -1)
+		if [ -z "$TOOL_ID" ]; then
+			TOOL_ID=$(echo "$OUTPUT" | grep -oE '"id"\s*:\s*"[^"]+"' | head -1 | grep -oE '[a-zA-Z0-9]{20,}')
+		fi
+		if [ -z "$TOOL_ID" ]; then
+			echo "  ERROR: could not extract tool ID from output:"
+			echo "  $OUTPUT"
+			exit 1
+		fi
+		echo "  -> $TOOL_ID"
+		TOOL_IDS+=("$TOOL_ID")
+		# CLI creates a default tool with no parameters. Push the real config
+		# via the API so parameters (url, ref, text, etc.) are set correctly.
+		echo "  pushing real config for $tool..."
+		python3 -c "
+import json, os, sys
+from elevenlabs import ElevenLabs
+from elevenlabs.types.literal_json_schema_property import LiteralJsonSchemaProperty
+from elevenlabs.types.object_json_schema_property_input import ObjectJsonSchemaPropertyInput
+from elevenlabs.types.tool_request_model import ToolRequestModel
+
+with open('$TOOL_CONFIG_FILE') as f:
+    cfg = json.load(f)
+
+props = {}
+required = []
+for p in cfg.get('parameters', []):
+    props[p['id']] = LiteralJsonSchemaProperty(
+        type=p.get('type', 'string'),
+        description=p.get('description', ''),
+    )
+    if p.get('required'):
+        required.append(p['id'])
+
+params = ObjectJsonSchemaPropertyInput(
+    type='object',
+    description='Parameters for the client tool',
+    required=required,
+    properties=props,
+)
+
+payload = {
+    'type': cfg.get('type', 'client'),
+    'name': cfg['name'],
+    'description': cfg.get('description', ''),
+    'expects_response': cfg.get('expects_response', True),
+    'parameters': params,
+}
+
+client = ElevenLabs()
+client.conversational_ai.tools.update(tool_id='$TOOL_ID', request=ToolRequestModel(tool_config=payload))
+print(f'  $tool config pushed: params={required}')
+" 2>&1 || echo "  WARNING: failed to push $tool config via API"
+	fi
 done
 echo ""
 
-echo "=== writing tool_ids into agent config ==="
-if [ ! -f "$AGENT_CONFIG" ]; then
-	echo "  agent config not found at $AGENT_CONFIG"
-	echo "  available configs:"
-	ls agent_configs/ 2>/dev/null || echo "  (none)"
-	exit 1
-fi
+# --- write tool_ids into agent config and set prompt/LLM ---
+echo "=== configuring agent ==="
 
-# Build the tool_ids JSON array string.
 TOOL_IDS_JSON=$(printf '"%s",' "${TOOL_IDS[@]}")
 TOOL_IDS_JSON="[${TOOL_IDS_JSON%,}]"
 
-# Use python to merge tool_ids into the agent config, and set the system prompt + LLM.
 python3 -c "
 import json, sys
 
@@ -74,9 +204,13 @@ config.setdefault('conversation_config', {}).setdefault('agent', {}).setdefault(
 config['conversation_config']['agent']['prompt']['tool_ids'] = $TOOL_IDS_JSON
 config['conversation_config']['agent']['prompt']['llm'] = 'gemini-2.5-flash'
 config['conversation_config']['agent']['prompt']['temperature'] = 0.0
-config['conversation_config']['agent']['prompt']['prompt'] = '''You are a voice-driven form-filling assistant operating on the Reachy Mini robot. The user speaks to you and you fill web forms on their behalf using the available client tools.
+config['conversation_config']['agent']['prompt']['prompt'] = '''You are a voice-driven assistant operating on the Reachy Mini robot. You do two things: search the web for live information, and fill web forms on the user's behalf using the available client tools.
 
-CRITICAL: When calling open_form, you MUST always pass the url parameter. Never call open_form without a url. If the user says a domain like "google.com" or "example.com", construct the full URL as "https://google.com" or "https://example.com" and pass it as the url parameter. If the user does not specify a URL, ask them for one before calling open_form.
+WEB SEARCH:
+When the user asks a question that needs live or factual information you don't know (current events, official requirements, product details, latest news), call web_search with a clear query. Read the returned results and answer concisely. If a result looks useful to show the user, call open_form with that URL.
+
+FORM FILLING:
+CRITICAL: When calling open_form, you MUST always pass the url parameter. Never call open_form without a url. If the user says a domain like \"google.com\" or \"example.com\", construct the full URL as \"https://google.com\" or \"https://example.com\" and pass it as the url parameter. If the user does not specify a URL, ask them for one before calling open_form.
 
 When the user asks you to fill a form:
 1. Call open_form with the full URL (always include https://). The url parameter is REQUIRED.
@@ -91,7 +225,7 @@ Always snapshot after any action that might change the page. Refs from old snaps
 
 If the user asks to read the page, use get_page_text. If they ask to see what is on screen, use get_page_snapshot.'''
 
-config['conversation_config']['agent']['first_message'] = 'Hi! I can help you fill web forms. Just tell me the URL and what information to put in, and I will fill it in for you.'
+config['conversation_config']['agent']['first_message'] = 'Hi! I can help you fill web forms or search the web for information. Just tell me what you need.'
 
 # Ensure TTS and ASR are configured for voice.
 config['conversation_config'].setdefault('tts', {})
@@ -115,20 +249,14 @@ with open('$AGENT_CONFIG', 'w') as f:
 echo "  written to $AGENT_CONFIG"
 echo ""
 
+# --- push agent to ElevenLabs ---
 echo "=== pushing agent to ElevenLabs ==="
-# agents push --agent takes an agent ID. Pull it from the config file's "id" field
-# if present, otherwise push all agents.
-AGENT_ID=$(python3 -c "import json; print(json.load(open('$AGENT_CONFIG')).get('id', ''))" 2>/dev/null || echo "")
-if [ -n "$AGENT_ID" ]; then
-	elevenlabs agents push --agent "$AGENT_ID"
-else
-	elevenlabs agents push
-fi
+elevenlabs agents push --agent "$AGENT_ID" --no-ui
 echo ""
 
 echo "=== agent is live ==="
-echo "Get the agent ID from:"
-echo "  elevenlabs agents list"
+echo "  Agent ID: $AGENT_ID"
+echo "  Config: $AGENT_CONFIG"
 echo ""
-echo "Then put it in .env:"
-echo "  AGENT_ID=agent_xxxxxxxxxxxxx"
+echo "Put this in .env:"
+echo "  AGENT_ID=$AGENT_ID"

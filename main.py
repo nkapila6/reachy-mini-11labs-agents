@@ -19,6 +19,7 @@ from elevenlabs.client import ElevenLabs
 from elevenlabs.conversational_ai.conversation import Conversation, ClientTools
 
 from pinchtab_tools import init_pinchtab, register_tools
+from context_tools import init_context, register_context_tools
 from reachy_audio import ReachyAudioInterface
 
 logger = logging.getLogger("reachy-agent")
@@ -124,6 +125,11 @@ def main():
     init_pinchtab(args.pinchtab_url, args.pinchtab_token)
     client_tools = ClientTools()
     register_tools(client_tools)
+
+    # --- context.dev client tools ---
+    context_key = os.getenv("CONTEXT_API_KEY")
+    init_context(context_key)
+    register_context_tools(client_tools)
 
     # --- motion controller ---
     # Created before audio so we can pass the speaking callback.

@@ -133,7 +133,7 @@ if [ "$NEEDS_ENV" = true ]; then
 fi
 
 # Python source + config files to sync.
-FILES="main.py reachy_audio.py motion.py pinchtab_tools.py pyproject.toml .env"
+FILES="main.py reachy_audio.py motion.py pinchtab_tools.py context_tools.py pyproject.toml .env"
 
 echo "=== checking robot prerequisites ==="
 # Ensure the daemon's Python 3.12 exists (uv-managed, can get deleted).

@@ -1,0 +1,22 @@
+{
+  "type": "client",
+  "name": "web_search",
+  "description": "Search the web using context.dev and return results with page content. Use this when the user asks a question that needs live or factual information you don't know (e.g. current events, official requirements, latest news, product details). Returns titles, URLs, snippets, and full page markdown for the top results. The agent can read the content and answer, or call open_form with a result URL to show the page to the user.",
+  "expects_response": true,
+  "parameters": [
+    {
+      "id": "query",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "The search query. Supports natural language and Google operators like site:, -site:, inurl:, intitle:, and quoted phrases.",
+      "required": true
+    },
+    {
+      "id": "numResults",
+      "type": "number",
+      "value_type": "llm_prompt",
+      "description": "Number of results to return (10-100). Defaults to 10. Use fewer for speed, more for broad topics.",
+      "required": false
+    }
+  ]
+}
