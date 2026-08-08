@@ -7,3 +7,9 @@ explained/
 *.egg-info/
 dist/
 build/
+
+# ElevenLabs CLI generated files (agent_configs, registries)
+agent_configs/
+agents.json
+tools.json
+tests.json
