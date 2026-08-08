@@ -5,9 +5,9 @@ description = "Reachy Mini + ElevenLabs Agent + PinchTab form-filling assistant"
 requires-python = ">=3.11"
 dependencies = [
     "elevenlabs>=1.0.0",
-    "requests>=2.31.0",
-    "numpy>=1.26.0",
-    "reachy_mini>=1.0.0",
+    "requests",
+    "numpy",
+    "reachy-mini==1.9.0",
 ]
 
 [project.scripts]
