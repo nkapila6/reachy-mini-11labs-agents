@@ -222,10 +222,20 @@ class MotionController:
         self._thread.start()
 
     def set_speaking(self, speaking: bool) -> None:
-        """Tell the model whether the agent is currently speaking."""
+        """Toggle between speaking and idle motion.
+
+        When True: level 0.7 (active head sway, antenna perk).
+        When False: level 0.15 (gentle idle sway).
+        The motion loop only sends poses when _motion_on is True.
+        """
         self._motion_on = True
         level = 0.7 if speaking else 0.15
         self.model.set_level(level)
+
+    def stop_motion(self) -> None:
+        """Stop sending poses entirely (agent is done responding)."""
+        self._motion_on = False
+        self.model.set_level(0.0)
 
     def stop(self) -> None:
         """Send goto_sleep, stop the loop and close the WebSocket."""

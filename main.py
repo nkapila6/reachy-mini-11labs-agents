@@ -115,7 +115,6 @@ def main():
 
         motion = MotionController(robot_host=args.reachy_host, port=args.reachy_port)
         motion.start()
-        motion.set_speaking(False)
         logger.info("motion controller started")
 
     # --- robot audio interface ---
