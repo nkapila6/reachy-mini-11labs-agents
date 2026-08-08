@@ -5,6 +5,7 @@ calls them by name to navigate pages, fill forms, click elements, and inspect
 the page state through pinchtab's accessibility snapshot.
 """
 
+import json
 import os
 
 import requests
@@ -93,13 +94,17 @@ def _active_tab_id(override: str | None = None) -> str | None:
 
 
 def _wrap_errors(func):
-    """Decorator that turns network errors into LLM-friendly error results."""
+    """Decorator that turns network errors into LLM-friendly error strings."""
 
     def wrapper(*args, **kwargs):
         try:
-            return func(*args, **kwargs)
+            result = func(*args, **kwargs)
+            # ElevenLabs expects tool results as strings, not dicts.
+            if isinstance(result, str):
+                return result
+            return json.dumps(result)
         except requests.RequestException as e:
-            return {"error": str(e)}
+            return json.dumps({"error": str(e)})
 
     return wrapper
 
@@ -108,7 +113,7 @@ def _wrap_errors(func):
 def open_form(params: dict) -> dict:
     url = params.get("url")
     if not url:
-        return {"error": "missing required parameter 'url'"}
+        return json.dumps({"error": "missing required parameter 'url'"})
 
     result = pinchtab.navigate(url)
     tab_id = result.get("tabId") or pinchtab.last_tab_id
@@ -122,7 +127,7 @@ def fill_field(params: dict) -> dict:
     text = params.get("text")
     tab_id = _active_tab_id(params.get("tabId"))
     if not ref or text is None:
-        return {"error": "missing required parameters 'ref' and 'text'"}
+        return json.dumps({"error": "missing required parameters 'ref' and 'text'"})
 
     pinchtab.fill(ref, text, tab_id)
     return pinchtab.snapshot(tab_id)
@@ -133,7 +138,7 @@ def click_element(params: dict) -> dict:
     ref = params.get("ref")
     tab_id = _active_tab_id(params.get("tabId"))
     if not ref:
-        return {"error": "missing required parameter 'ref'"}
+        return json.dumps({"error": "missing required parameter 'ref'"})
 
     pinchtab.click(ref, tab_id)
     return pinchtab.snapshot(tab_id)

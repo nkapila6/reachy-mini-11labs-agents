@@ -114,12 +114,15 @@ class ReachyAudioInterface(AudioInterface):
         logger.info("stopping Reachy audio interface...")
         self._stop_event.set()
 
-        if self._mic_thread is not None:
+        # Avoid deadlock if stop() is called from the mic thread itself
+        # (the SDK calls end_session -> stop from within the mic callback).
+        current = threading.current_thread()
+        if self._mic_thread is not None and current is not self._mic_thread:
             self._mic_thread.join(timeout=2)
 
         # Signal the output worker to exit and drain any pending audio.
         self._output_queue.put(None)
-        if self._output_thread is not None:
+        if self._output_thread is not None and current is not self._output_thread:
             self._output_thread.join(timeout=2)
 
         if self.robot is not None:
