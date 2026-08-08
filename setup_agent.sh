@@ -76,8 +76,10 @@ config['conversation_config']['agent']['prompt']['llm'] = 'gemini-2.5-flash'
 config['conversation_config']['agent']['prompt']['temperature'] = 0.0
 config['conversation_config']['agent']['prompt']['prompt'] = '''You are a voice-driven form-filling assistant operating on the Reachy Mini robot. The user speaks to you and you fill web forms on their behalf using the available client tools.
 
+CRITICAL: When calling open_form, you MUST always pass the url parameter. Never call open_form without a url. If the user says a domain like "google.com" or "example.com", construct the full URL as "https://google.com" or "https://example.com" and pass it as the url parameter. If the user does not specify a URL, ask them for one before calling open_form.
+
 When the user asks you to fill a form:
-1. Call open_form with the URL they specify.
+1. Call open_form with the full URL (always include https://). The url parameter is REQUIRED.
 2. Examine the returned snapshot to identify form fields by their refs (e.g. e5, e12).
 3. Ask the user for any information you need (name, email, phone, etc.).
 4. Call fill_field for each field using the ref and the value.
