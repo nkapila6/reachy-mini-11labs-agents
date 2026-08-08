@@ -100,6 +100,26 @@ if [ "$FORCE_ENV" = true ] || [ ! -f .env ]; then
 	generate_env
 fi
 
+# Check if .env has placeholder or missing required values.
+NEEDS_ENV=false
+if [ -f .env ]; then
+	# Check for placeholder values that need real input.
+	if grep -q "your-api-key-here\|your-context-api-key\|agent_xxxxxxxxxxxxx\|pinchtab-pc" .env 2>/dev/null; then
+		NEEDS_ENV=true
+	fi
+	# Check for missing required vars.
+	for var in ELEVENLABS_API_KEY AGENT_ID PINCHTAB_URL PINCHTAB_TOKEN; do
+		if ! grep -q "^${var}=" .env 2>/dev/null; then
+			NEEDS_ENV=true
+		fi
+	done
+fi
+
+if [ "$NEEDS_ENV" = true ]; then
+	echo "=== .env has missing or placeholder values ==="
+	generate_env
+fi
+
 # Python source + config files to sync.
 FILES="main.py reachy_audio.py motion.py pinchtab_tools.py pyproject.toml .env"
 
