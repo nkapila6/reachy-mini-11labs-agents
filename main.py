@@ -87,6 +87,9 @@ def main():
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s: %(message)s")
+    # Silence noisy loggers so the important stuff is visible.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("reachy_mini").setLevel(logging.WARNING)
 
     if not args.agent_id:
         logger.error("AGENT_ID is required (use --agent-id or set AGENT_ID in .env)")
@@ -140,8 +143,14 @@ def main():
     # --- ElevenLabs client + conversation ---
     elevenlabs = ElevenLabs(api_key=args.api_key) if args.api_key else ElevenLabs()
 
-    callback_agent_response = lambda response: logger.info("Agent: %s", response)
-    callback_user_transcript = lambda transcript: logger.info("User: %s", transcript)
+    def callback_agent_response(response):
+        logger.info("Agent: %s", response)
+
+    def callback_user_transcript(transcript):
+        logger.info("User: %s", transcript)
+
+    def callback_agent_response_correction(original, corrected):
+        logger.info("Agent corrected: '%s' -> '%s'", original, corrected)
 
     conversation = Conversation(
         elevenlabs,
@@ -151,6 +160,7 @@ def main():
         client_tools=client_tools,
         callback_agent_response=callback_agent_response,
         callback_user_transcript=callback_user_transcript,
+        callback_agent_response_correction=callback_agent_response_correction,
     )
 
     # --- start + signal handling ---

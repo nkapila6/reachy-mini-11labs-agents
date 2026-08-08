@@ -6,11 +6,14 @@ the page state through pinchtab's accessibility snapshot.
 """
 
 import json
+import logging
 import os
 
 import requests
 
 from elevenlabs.conversational_ai.conversation import ClientTools
+
+logger = logging.getLogger(__name__)
 
 
 class PinchTabClient:
@@ -98,12 +101,14 @@ def _wrap_errors(func):
 
     def wrapper(*args, **kwargs):
         try:
+            logger.info("tool call: %s(%s)", func.__name__, args[0] if args else {})
             result = func(*args, **kwargs)
             # ElevenLabs expects tool results as strings, not dicts.
             if isinstance(result, str):
                 return result
             return json.dumps(result)
         except requests.RequestException as e:
+            logger.warning("tool error in %s: %s", func.__name__, e)
             return json.dumps({"error": str(e)})
 
     return wrapper
