@@ -1,0 +1,15 @@
+{
+  "type": "client",
+  "name": "open_form",
+  "description": "Opens a web form by navigating to the specified URL in the browser. Use this when the user asks to fill a form on a website. Returns a snapshot of the page's interactive elements so you can identify form fields by their ref.",
+  "expects_response": true,
+  "parameters": [
+    {
+      "id": "url",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "The full URL of the web form to open, e.g. https://example.com/contact",
+      "required": true
+    }
+  ]
+}

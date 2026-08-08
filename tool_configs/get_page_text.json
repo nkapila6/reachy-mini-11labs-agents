@@ -1,0 +1,7 @@
+{
+  "type": "client",
+  "name": "get_page_text",
+  "description": "Extracts the text content of the current page. Use this to read what's on the page, find instructions, or verify form labels and content.",
+  "expects_response": true,
+  "parameters": []
+}

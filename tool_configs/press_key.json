@@ -1,0 +1,15 @@
+{
+  "type": "client",
+  "name": "press_key",
+  "description": "Presses a keyboard key on the current page. Use this to submit forms with Enter, navigate fields with Tab, or trigger other keyboard shortcuts. Returns an updated snapshot.",
+  "expects_response": true,
+  "parameters": [
+    {
+      "id": "key",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "The key to press, e.g. Enter, Tab, Escape",
+      "required": true
+    }
+  ]
+}

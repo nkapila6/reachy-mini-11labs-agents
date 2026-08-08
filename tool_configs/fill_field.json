@@ -1,0 +1,22 @@
+{
+  "type": "client",
+  "name": "fill_field",
+  "description": "Fills a single input field on the current page with the given text. Use the ref from the page snapshot to identify which field to fill. Returns an updated snapshot so you can see the result and find the next field.",
+  "expects_response": true,
+  "parameters": [
+    {
+      "id": "ref",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "The element ref from the page snapshot, e.g. e5 or e12",
+      "required": true
+    },
+    {
+      "id": "text",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "The text value to type into the field",
+      "required": true
+    }
+  ]
+}

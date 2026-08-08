@@ -1,0 +1,7 @@
+{
+  "type": "client",
+  "name": "get_page_snapshot",
+  "description": "Gets a snapshot of the current page's interactive elements with their refs. Use this to re-examine the page state, find form fields, or see what changed after an action.",
+  "expects_response": true,
+  "parameters": []
+}

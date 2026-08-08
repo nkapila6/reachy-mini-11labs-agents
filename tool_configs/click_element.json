@@ -1,0 +1,15 @@
+{
+  "type": "client",
+  "name": "click_element",
+  "description": "Clicks an element on the current page by its ref. Use this to click buttons, links, checkboxes, or any clickable element. Returns an updated snapshot of the page after the click.",
+  "expects_response": true,
+  "parameters": [
+    {
+      "id": "ref",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "The element ref from the page snapshot to click, e.g. e5",
+      "required": true
+    }
+  ]
+}
