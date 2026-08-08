@@ -147,22 +147,18 @@ def main():
 
     # --- start + signal handling ---
     logger.info("starting session with agent %s...", args.agent_id)
+    logger.info("ready -- talk to the robot!")
     conversation.start_session()
 
-    # One-shot shutdown flag so Ctrl+C doesn't loop.
-    shutting_down = threading.Event()
-
     def shutdown(sig, frame):
-        if shutting_down.is_set():
-            # Second Ctrl+C: force exit.
-            os._exit(1)
-        shutting_down.set()
         logger.info("shutting down...")
         conversation.end_session()
         if motion:
             motion.stop()
+        os._exit(0)
 
     signal.signal(signal.SIGINT, shutdown)
+    signal.signal(signal.SIGTERM, shutdown)
 
     conversation_id = conversation.wait_for_session_end()
     logger.info("session ended (id=%s)", conversation_id)
