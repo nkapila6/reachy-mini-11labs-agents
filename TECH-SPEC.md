@@ -1,217 +1,192 @@
 # TECH-SPEC — reachy-11labs-agent
 
-Technical companion to [`README.md`](README.md): component responsibilities,
-data flow, integration contracts, config, and open items for this repo.
+Component responsibilities, data flow, integration contracts, config, and open items.
 
 ## 1. Purpose
 
-A citizen talks to Reachy Mini. The ElevenLabs Conversational AI agent
-(cloud-hosted STT/LLM/TTS + tool calling) either:
+Voice assistant on the Reachy Mini robot. The heavy work (STT, LLM, TTS, tool routing) runs in the ElevenLabs cloud. The robot runs a thin Python client that wires its mic and speaker to the ElevenLabs Conversational AI agent, executes client tools locally, and fans them out to two backends:
 
-- answers a government-eligibility/requirements question, sourced live
-  from official government pages via context.dev, or
-- drives a real browser (via PinchTab) to fill out a government form on
-  screen, narrating what it's doing as it goes.
-
-This repo is the thin client + knowledge webhook that makes both possible.
-It does not implement any session/approval/review layer — whatever the
-agent fills in gets filled in live, on screen, as it talks.
+- context.dev for live web search (`web_search`).
+- PinchTab for browser control (open/fill/click/press/snapshot/text tools) on a headed Chrome instance running on a separate PC on the LAN.
 
 ## 2. Components
 
-### 2.1 `main.py` — entry point
+### `main.py` — entry point and wiring
 
-Loads `.env`, parses CLI args (agent id, API key, PinchTab URL, Reachy
-host/port, `--no-motors`, `--no-audio`), then wires together:
+Loads `.env`, parses CLI args, then connects the pieces:
 
-- `pinchtab_tools.init_pinchtab` + `register_tools` — client tools
-- `reachy_audio.ReachyAudioInterface` — mic/speaker bridge (skipped with
-  `--no-audio`, useful for text-only debugging)
-- `motion.MotionController` — speech-driven idle/speaking motion (skipped
-  with `--no-motors`)
-- `elevenlabs.conversational_ai.conversation.Conversation` — the SDK
-  session itself
+- `pinchtab_tools.init_pinchtab` + `register_tools` for browser tools.
+- `context_tools.init_context` + `register_context_tools` for web search.
+- `motion.MotionController` for speech-driven head/antenna/body motion (disabled with `--no-motors`).
+- `reachy_audio.ReachyAudioInterface` for mic/speaker I/O (disabled with `--no-audio`).
+- `elevenlabs.conversational_ai.conversation.Conversation` to start the session.
 
-Does **not** import `gov_intel` or run the Flask webhook — that's a
-separate process (`server.py`), reachable independently by ElevenLabs'
-cloud as a webhook tool.
+Also patches `conversation._handle_message` to log raw `client_tool_call` WebSocket frames for debugging tool parameter issues.
 
-### 2.2 `pinchtab_tools.py` — form-filling client tools
+CLI flags: `--agent-id`, `--api-key`, `--pinchtab-url`, `--pinchtab-token`, `--reachy-host`, `--reachy-port`, `--no-motors`, `--no-audio`, `--debug`.
 
-Wraps a real, separately-run PinchTab instance's HTTP API
-(`pinchtab.com`, typically headed Chrome on a LAN PC, default port 9867).
-`PinchTabClient` remembers the last `tabId` so subsequent calls don't need
-to pass it explicitly. Registered tools: `open_form`, `fill_field`,
-`click_element`, `press_key`, `get_page_snapshot`, `get_page_text` — each
-wrapped so network errors come back as `{"error": ...}` (LLM-friendly)
-rather than raising.
+### `pinchtab_tools.py` — PinchTab client tools
 
-PinchTab's model: navigate → snapshot the interactive accessibility tree
-(elements get `ref`s like `e3`) → act on an element by `ref` → re-snapshot,
-since refs expire on navigation.
+`PinchTabClient` wraps the PinchTab HTTP API:
 
-### 2.3 `reachy_audio.py` / `motion.py` — robot I/O
+- Polls `GET /instances` for up to 15 seconds at startup and pins the first running headed instance (`X-Instance-Id` header) so the user can see the browser. Falls back to the default instance if none is found.
+- Reuses the last `tabId` across calls.
 
-- `ReachyAudioInterface` implements the ElevenLabs SDK's `AudioInterface`:
-  robot mic → PCM → WebSocket, WebSocket → PCM → robot speaker, with AGC +
-  noise suppression applied to the mic path.
-- `MotionController` (`motion.py`) is a Python port of a Go motion model:
-  produces head pose / antenna angle / body yaw at 50 Hz from a single
-  "speech level" input and streams it to the robot daemon over its own
-  WebSocket (`set_full_target`). `main.py` toggles it via
-  `set_speaking(True/False)` around agent speech.
+Registered tools:
 
-### 2.4 `server.py` — government-knowledge webhook
+- `open_form` — `POST /navigate` then `GET /snapshot`, returns `{tabId, snapshot}`.
+- `fill_field` — `POST /action` with `kind: fill`, returns updated snapshot.
+- `click_element` — `POST /action` with `kind: click`, returns updated snapshot.
+- `press_key` — `POST /action` with `kind: press`, returns updated snapshot.
+- `get_page_snapshot` — `GET /snapshot?filter=interactive`.
+- `get_page_text` — `GET /text`, returns `{text}`.
 
-A small Flask app, run as its own process, independent of `main.py`.
-Exposes `POST /api/visa-intel`: accepts a loosely-shaped payload (tries
-`question`/`query`/`input`, top-level or under `parameters`, to tolerate
-whatever shape ElevenLabs sends), calls
-`UAEVisaIntelClient.smart_extract(question)`, summarizes the result with
-`LLMVoiceSummarizer`, and returns it under several aliased keys
-(`result`/`response`/`answer`/`output`) again to tolerate whatever key the
-ElevenLabs webhook-tool response mapping expects.
+Network errors are caught and returned as `{"error": "..."}` so the LLM sees them instead of a tool crash.
 
-This is configured on the ElevenLabs dashboard as a **webhook tool** (not
-a client tool) — ElevenLabs' cloud calls it directly over HTTPS, so it
-must be independently reachable from the internet (deployed, or tunneled)
-wherever it runs; being on the same LAN as the robot is not sufficient.
+### `context_tools.py` — web search tool
 
-### 2.5 `gov_intel/` — government-knowledge client
+Registered tool: `web_search`.
 
-- `uae_visa_client.py` — `UAEVisaIntelClient` wraps context.dev's
-  `POST /v1/web/extract`, restricted to four official UAE sources (`u.ae`,
-  `icp.gov.ae`, `gdrfad.gov.ae`, `mofa.gov.ae`). Every extraction passes an
-  explicit `{url, instructions, schema}` — the instructions always tell
-  the model not to infer/estimate missing fields. Aggressively caches to
-  `visa_cache.json` on disk (24h TTL, since visa rules don't change
-  hourly) and falls back to any cached data for the same URL if the API
-  call fails, rather than fabricating an answer. `smart_extract(query)`
-  picks the right source page from free-text (tourist/golden/student/
-  work/green/visit-on-arrival) without a caller having to specify a URL.
-- `llm_summarizer.py` — `LLMVoiceSummarizer.summarize_for_speech` turns a
-  raw extraction into a 2-3 sentence, markdown-free spoken answer. Tries
-  Groq (`llama-3.3-70b-versatile`) → OpenAI (`gpt-4o-mini`) → a
-  rule-based template fallback, in that order, so it degrades gracefully
-  without any LLM key configured.
-- `voice_speaker.py` — `ElevenLabsSpeaker`: microphone recording, STT
-  (Scribe v2), TTS, all via direct ElevenLabs REST calls. **Not currently
-  imported by `main.py` or `server.py`** — see §6.
+Calls `POST https://api.context.dev/v1/web/search` directly from the robot with:
 
-## 3. Provenance note
+- `query`
+- `numResults` (clamped 10..100)
+- `markdownOptions: { enabled: true, useMainContentOnly: true }`
 
-`gov_intel/` and `server.py` originated in a separate repo,
-[`Shaaha-7/uae-visa-agent`](https://github.com/Shaaha-7/uae-visa-agent), as
-a standalone (non-robot) voice pipeline: record mic → context.dev extract
-→ LLM summarize → ElevenLabs TTS → play MP3 (see that repo's
-`voice_agent_pipeline.py`). They were copied into this repo to plug
-government knowledge into the Reachy agent via a webhook tool. The
-`uae-visa-agent` repo's own working tree still shows these files as
-locally deleted but uncommitted — that deletion should get committed (or
-the repo archived) once this integration is confirmed working, to avoid
-two copies drifting apart.
+Trims each result's markdown to 2000 characters and returns title, url, description, relevance, the trimmed content, and `credits_remaining`.
 
-## 4. Data flow
+### `reachy_audio.py` — mic/speaker bridge
 
-**Form filling:**
+`ReachyAudioInterface` implements the ElevenLabs SDK's `AudioInterface`:
+
+- Starts the Reachy daemon backend, connects to `ReachyMini(automatic_body_yaw=False)`, wakes the robot, and starts recording/playback.
+- Applies DSP config (AGC, noise suppression) via `apply_audio_config`.
+- Reads mic frames in a background thread, normalizes to mono int16 PCM, and passes them to the SDK input callback.
+- Receives TTS audio from the SDK, boosts volume by 5x, clips to [-1, 1], and pushes to the speaker in another thread.
+- Calls `on_speaking_change(True/False)` when TTS playback starts/stops, so `motion.py` ramps between speaking and idle motion.
+
+Pre-starts the audio pipeline before the conversation starts so the first agent message isn't lost.
+
+### `motion.py` — speech-driven motion
+
+Python port of a Go motion model. `MotionController` connects to `ws://{REACHY_HOST}:{REACHY_PORT}/ws/sdk` and streams poses at 50 Hz.
+
+`MotionModel` produces continuous head pose (SE3 matrix), antenna angles, and body yaw driven by a speech level signal. `set_speaking(True)` raises the level to 0.7 (active head sway, antenna perk). `set_speaking(False)` drops it to 0.15 (gentle idle sway). Messages sent as `{"type": "set_full_target", "head", "antennas", "body_yaw"}`.
+
+On shutdown it sends `{"type": "goto_sleep"}` and closes the WebSocket.
+
+### `setup_agent.sh` — ElevenLabs agent and tool setup
+
+Idempotent. Looks up the agent and tools in `agents.json` and `tools.json`; reuses existing ones instead of creating duplicates. If the agent doesn't exist, creates it from the `voice-only` template.
+
+For each of the seven tools, backs up the config (the CLI overwrites it with a default template), calls `elevenlabs tools add`, restores the config, then pushes the real parameters via the ElevenLabs Python API so `url`, `ref`, `text`, `query`, etc. are set correctly.
+
+Finally injects the tool IDs, prompt, LLM (`gemini-2.5-flash`), temperature, first message, TTS/ASR config, and conversation settings into the agent config and pushes it.
+
+### `deploy.sh` — robot deploy
+
+Copies changed files to the Reachy Mini by comparing SHA256 hashes. Prompts for `.env` values if `.env` is missing or `--env` is passed. Stops a running `main.py` before overwriting files, then syncs the Python venv with `uv sync` on the robot.
+
+### `start_pinchtab.sh` — PinchTab startup
+
+Run on the PinchTab PC, not the robot. Sets `server.bind` to `0.0.0.0` and `security.allowedDomains` once, then starts the PinchTab server with a runtime token via `PINCHTAB_TOKEN`. The headed default instance is expected to be configured via `instanceDefaults.mode headed` in PinchTab config.
+
+## 3. Data flow
+
+### Web search
 
 ```
-User speech -> STT (ElevenLabs) -> LLM tool call: open_form(url)
-  -> pinchtab_tools.open_form -> PinchTab: POST /navigate, GET /snapshot
+User speech -> ElevenLabs STT -> LLM calls web_search
+  -> robot calls context.dev POST /web/search
+  -> trimmed results returned to LLM context
+  -> LLM answers -> TTS -> robot speaker + motion ramp
+```
+
+### Form filling
+
+```
+User speech -> ElevenLabs STT -> LLM calls open_form(url)
+  -> robot calls PinchTab POST /navigate + GET /snapshot
   -> snapshot returned to LLM context
-  -> LLM tool call: fill_field(ref, text) per field, re-snapshotting each time
-  -> LLM narrates -> TTS -> robot speaker
+  -> LLM calls fill_field(ref, text) / click_element(ref) / press_key(key)
+  -> robot calls PinchTab POST /action + GET /snapshot
+  -> LLM narrates progress -> TTS -> robot speaker
 ```
 
-**Government knowledge:**
+Both flows share the same conversation context; the LLM can move from search to opening a result and then interacting with it.
 
-```
-User speech -> STT (ElevenLabs) -> LLM tool call: webhook(question)
-  -> ElevenLabs cloud -> POST server.py:/api/visa-intel
-  -> UAEVisaIntelClient.smart_extract -> context.dev /web/extract (or cache)
-  -> LLMVoiceSummarizer.summarize_for_speech
-  -> response -> LLM speaks it -> TTS -> robot speaker
-```
+## 4. Integration contracts
 
-The two flows are independent — nothing from a knowledge answer is
-carried into the form-filling tool calls; the LLM itself is the only
-thing connecting "what the citizen said they needed" to "what it fills
-into the form."
+### ElevenLabs client tools
 
-## 5. Integration contracts
-
-### 5.1 ElevenLabs client tools
-
-Defined in `tool_configs/*.json`, registered in
-`pinchtab_tools.register_tools`. Names are case-sensitive and must match
-exactly between the dashboard config and the code:
-
-| Tool | Params | Returns |
+| Tool | Parameters | Returns |
 | --- | --- | --- |
-| `open_form` | `url` | `{tabId, snapshot}` |
+| `open_form` | `url` | `{"tabId", "snapshot"}` |
 | `fill_field` | `ref`, `text`, optional `tabId` | updated snapshot |
 | `click_element` | `ref`, optional `tabId` | updated snapshot |
 | `press_key` | `key`, optional `tabId` | updated snapshot |
-| `get_page_snapshot` | optional `tabId` | current snapshot |
-| `get_page_text` | optional `tabId` | `{text}` |
+| `get_page_snapshot` | optional `tabId` | snapshot |
+| `get_page_text` | optional `tabId` | `{"text"}` |
+| `web_search` | `query`, optional `numResults` | trimmed results array + `credits_remaining` |
 
-If `tabId` is omitted, the client tools fall back to the last tab
-returned by `open_form` (`PinchTabClient.last_tab_id`).
+Names and parameter ids must match exactly between `tool_configs/*.json` and the Python registrations.
 
-### 5.2 ElevenLabs webhook tool
+### context.dev API
 
-`POST /api/visa-intel` on `server.py`. Request/response shapes are
-deliberately loose (see §2.4) to absorb whatever ElevenLabs' webhook-tool
-payload/response mapping ends up being configured as. Response includes
-`source_url` and `raw_data` alongside the spoken-answer text, so the
-webhook-tool config can surface the source to the LLM if desired.
+`POST https://api.context.dev/v1/web/search`
 
-### 5.3 PinchTab HTTP API (consumed, not owned by this repo)
+Request body:
+
+```json
+{
+  "query": "...",
+  "numResults": 10,
+  "markdownOptions": {
+    "enabled": true,
+    "useMainContentOnly": true
+  }
+}
+```
+
+Response contains `query`, `results[]`, and `key_metadata.credits_remaining`. Each result has `url`, `title`, `description`, `relevance`, and `markdown.markdown`.
+
+### PinchTab HTTP API
 
 | Endpoint | Purpose |
 | --- | --- |
-| `POST /navigate` | open a URL, returns `tabId` |
-| `GET /snapshot?filter=interactive&tabId=` | interactive accessibility tree |
-| `POST /action` (`kind: click/fill/press`) | act on an element by `ref` |
-| `GET /text?tabId=` | page text content |
+| `GET /instances` | list Chrome instances; used to pin a headed instance |
 | `GET /health` | liveness check |
+| `POST /navigate` | open URL, optionally reuse `tabId`, returns new `tabId` |
+| `GET /snapshot?filter=interactive&tabId=...` | interactive accessibility tree with element refs |
+| `POST /action` | perform `kind: click`, `kind: fill`, or `kind: press` on a ref |
+| `GET /text?tabId=...` | extract page text content |
+
+All authenticated calls send `Authorization: Bearer {PINCHTAB_TOKEN}`. Pinned calls add `X-Instance-Id: {instance_id}`.
+
+## 5. Configuration reference (`.env`)
+
+| Variable | Used by | Purpose |
+| --- | --- | --- |
+| `ELEVENLABS_API_KEY` | `main.py` | Optional. Set for non-public agents. |
+| `AGENT_ID` | `main.py` | ElevenLabs Conversational AI agent ID. Required. |
+| `PINCHTAB_URL` | `main.py`, `pinchtab_tools.py` | PinchTab base URL, e.g. `http://pinchtab-pc:9867`. |
+| `PINCHTAB_TOKEN` | `pinchtab_tools.py` | Bearer token for PinchTab API calls. |
+| `CONTEXT_API_KEY` | `context_tools.py` | context.dev API key for `web_search`. |
+| `REACHY_HOST` | `main.py`, `reachy_audio.py`, `motion.py` | Reachy Mini daemon host. |
+| `REACHY_PORT` | `main.py`, `motion.py` | Reachy Mini daemon port (default 8000). |
 
 ## 6. Known gaps / cleanup items
 
-- `gov_intel/voice_speaker.py` (`ElevenLabsSpeaker`) is dead code in this
-  repo — nothing imports it outside `gov_intel/__init__.py`'s re-export.
-  It's a leftover from `uae-visa-agent`'s standalone pipeline. Either wire
-  it in for a non-ElevenLabs-SDK fallback path, or drop it.
-- No automated tests. `python main.py --no-motors --no-audio` is the
-  closest thing to a manual smoke test (skips audio/motion, still needs a
-  live ElevenLabs session and PinchTab reachable).
-- `.env.example` doesn't list `PINCHTAB_TOKEN`, even though
-  `start_pinchtab.sh` generates one and expects it to be set on the robot
-  side once PinchTab is bound to `0.0.0.0` on the LAN — worth adding once
-  `pinchtab_tools.py` actually sends it (it currently doesn't attach any
-  auth header to its requests).
-- `server.py` runs with `debug=True` — fine for local/hackathon use, not
-  for anything actually exposed to the internet long-term.
-- No shared context between a knowledge answer and a later form-fill: if
-  the agent already learned the citizen is applying for a "golden visa"
-  during the Q&A flow, that isn't passed into `open_form`/`fill_field`
-  calls — the LLM has to re-derive it from conversation history alone.
+- No automated tests.
+- `web_search` trims page markdown to 2000 characters per result. Hard-coded in `context_tools.py`; make configurable if longer content is needed.
+- PinchTab instance pinning retries for 15 seconds then silently falls back to the default instance. If the headed browser takes longer to start, tool calls will run headless.
+- Raw WebSocket debug logging for `client_tool_call` messages is patched into `conversation._handle_message` in `main.py`. Remove once tool parameter delivery is stable.
+- Earlier `setup_agent.sh` runs may have left duplicate tool IDs on the ElevenLabs side. The first matching set in `tools.json` is reused and attached to the agent; duplicates are harmless.
 
-## 7. Configuration reference (`.env`)
+## 7. Testing
 
-| Var | Used by | Purpose |
-| --- | --- | --- |
-| `ELEVENLABS_API_KEY`, `AGENT_ID` | `main.py` | ElevenLabs Conversational AI agent |
-| `PINCHTAB_URL` | `pinchtab_tools.py` | PinchTab instance URL, e.g. `http://pinchtab-pc:9867` |
-| `REACHY_HOST`, `REACHY_PORT` | `main.py`, `motion.py` | Reachy Mini daemon address |
-| `CONTEXT_API_KEY` / `CONTEXT_DEV_API_KEY` | `gov_intel/uae_visa_client.py` | context.dev API key (note: two names appear across `.env.example` and the client's own `os.environ.get` — confirm which one is actually read before relying on it) |
-| `OPENAI_API_KEY` / `GEMINI_API_KEY` / `GROQ_API_KEY` | `gov_intel/llm_summarizer.py` | optional, speech summarization (Groq → OpenAI → rule-based fallback; `GEMINI_API_KEY` is read but not currently used by the summarizer) |
-| `PORT` | `server.py` | webhook server port, default `5000` |
+Manual checks:
 
-## 8. Testing
-
-No automated test suite currently exists for this repo. Manual checks:
-
-- `curl http://pinchtab-pc:9867/health` — PinchTab reachable
-- `python server.py` then `curl -X POST localhost:5000/api/visa-intel -d '{"question":"..."}'` — webhook path end to end
-- `uv run reachy-agent --no-motors --no-audio` — text-mode agent session for tool-call debugging without robot hardware
+- `curl {PINCHTAB_URL}/health` from the robot to confirm PinchTab is reachable.
+- `curl -H "Authorization: Bearer {CONTEXT_API_KEY}" -X POST https://api.context.dev/v1/web/search -d '{"query":"..."}'` to confirm context.dev access.
+- `uv run reachy-agent --no-motors --no-audio` for text-mode tool-call debugging without robot hardware.
