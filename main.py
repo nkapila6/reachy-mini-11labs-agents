@@ -107,19 +107,8 @@ def main():
     client_tools = ClientTools()
     register_tools(client_tools)
 
-    # --- robot audio interface ---
-    # Start audio BEFORE the conversation so the first message isn't lost.
-    # The SDK calls audio_interface.start() in its own thread, but the daemon
-    # + ReachyMini + media pipeline takes ~10s. Starting it here means the
-    # mic/speaker are ready when the session connects.
-    audio_interface = None
-    if not args.no_audio:
-        audio_interface = ReachyAudioInterface(robot_host=args.reachy_host)
-        logger.info("pre-starting audio interface (daemon + media)...")
-        audio_interface._pre_start()
-        logger.info("audio interface ready")
-
     # --- motion controller ---
+    # Created before audio so we can pass the speaking callback.
     motion = None
     if not args.no_motors:
         from motion import MotionController
@@ -128,6 +117,26 @@ def main():
         motion.start()
         motion.set_speaking(False)
         logger.info("motion controller started")
+
+    # --- robot audio interface ---
+    # Start audio BEFORE the conversation so the first message isn't lost.
+    # The SDK calls audio_interface.start() in its own thread, but the daemon
+    # + ReachyMini + media pipeline takes ~10s. Starting it here means the
+    # mic/speaker are ready when the session connects.
+    #
+    # Wire the motion speaking callback: when TTS audio plays, the robot
+    # ramps up to speaking motion (0.7), when it stops, ramps to idle (0.15).
+    # Same levels as the Go agent.
+    audio_interface = None
+    if not args.no_audio:
+        on_speaking = motion.set_speaking if motion else None
+        audio_interface = ReachyAudioInterface(
+            robot_host=args.reachy_host,
+            on_speaking_change=on_speaking,
+        )
+        logger.info("pre-starting audio interface (daemon + media)...")
+        audio_interface._pre_start()
+        logger.info("audio interface ready")
 
     # --- ElevenLabs client + conversation ---
     elevenlabs = ElevenLabs(api_key=args.api_key) if args.api_key else ElevenLabs()

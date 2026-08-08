@@ -35,7 +35,7 @@ OUTPUT_VOLUME_BOOST = 5.0
 class ReachyAudioInterface(AudioInterface):
     """Thread-backed AudioInterface for Reachy Mini hardware."""
 
-    def __init__(self, robot_host="localhost"):
+    def __init__(self, robot_host="localhost", on_speaking_change=None):
         self.robot_host = robot_host
         self.robot = None
         self.input_callback = None
@@ -45,6 +45,12 @@ class ReachyAudioInterface(AudioInterface):
         self._output_thread = None
         self._output_queue = Queue()
         self._stop_event = threading.Event()
+
+        # Motion: callback fired when TTS playback starts/stops.
+        # The Go agent ramps motion.SetLevel(0.7) while speaking, 0.15 idle.
+        self._on_speaking_change = on_speaking_change
+        self._is_speaking = False
+        self._last_audio_time = 0.0
 
     def _pre_start(self):
         """Do the slow init (daemon, ReachyMini, media, DSP) before the session.
@@ -130,6 +136,11 @@ class ReachyAudioInterface(AudioInterface):
         # The SDK calls this from its websocket thread; hand off to the output
         # worker so we never block the conversation's receive loop.
         self._output_queue.put(audio)
+        # Toggle motion to "speaking" when TTS audio arrives.
+        if self._on_speaking_change and not self._is_speaking:
+            self._is_speaking = True
+            self._on_speaking_change(True)
+        self._last_audio_time = time.time()
 
     def interrupt(self):
         # Drop any buffered agent audio and flush the hardware player.
@@ -138,6 +149,11 @@ class ReachyAudioInterface(AudioInterface):
                 self._output_queue.get_nowait()
             except Empty:
                 break
+
+        # Ramp motion down to idle on interruption.
+        if self._on_speaking_change and self._is_speaking:
+            self._is_speaking = False
+            self._on_speaking_change(False)
 
         if self.robot is not None:
             try:
@@ -229,6 +245,12 @@ class ReachyAudioInterface(AudioInterface):
             if audio is None:
                 break
             self._play_pcm(audio)
+            # If no audio has arrived for 0.5s, ramp motion down to idle.
+            # Matches the Go agent's SetLevel(0.15) between sentences.
+            if self._on_speaking_change and self._is_speaking:
+                if time.time() - self._last_audio_time > 0.5:
+                    self._is_speaking = False
+                    self._on_speaking_change(False)
 
     def _play_pcm(self, audio: bytes):
         try:
