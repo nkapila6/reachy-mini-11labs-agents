@@ -49,8 +49,12 @@ class ReachyAudioInterface(AudioInterface):
     def start(self, input_callback):
         from reachy_mini import ReachyMini
 
+        # Start the daemon's hardware backend before connecting.
+        # Same as the old Go pipeline's EnsureReady().
+        self._ensure_daemon_ready()
+
         logger.info("connecting to Reachy...")
-        self.robot = ReachyMini()  # auto-detect
+        self.robot = ReachyMini(host=self.robot_host, port=8000)
 
         logger.info("waking up robot...")
         try:
@@ -126,6 +130,32 @@ class ReachyAudioInterface(AudioInterface):
                 self.robot.media.audio.clear_player()
             except Exception as e:
                 logger.warning("clear_player failed: %s", e)
+
+    def _ensure_daemon_ready(self):
+        """Start the daemon's hardware backend and wake the robot."""
+        import urllib.request
+
+        base = f"http://{self.robot_host}:8000"
+        logger.info("starting daemon backend at %s...", base)
+        try:
+            urllib.request.urlopen(f"{base}/api/daemon/start?wake_up=true", timeout=5)
+        except Exception as e:
+            logger.warning("daemon start request failed: %s (continuing...)", e)
+
+        # Poll until the backend is up (same as the old Go EnsureReady).
+        deadline = time.time() + 25
+        while time.time() < deadline:
+            try:
+                resp = urllib.request.urlopen(f"{base}/api/daemon/status", timeout=5)
+                body = resp.read().decode()
+                if '"backend_status":null' not in body:
+                    logger.info("daemon backend is up")
+                    time.sleep(2)
+                    return
+            except Exception:
+                pass
+            time.sleep(1)
+        logger.warning("daemon backend did not come up within 25s")
 
     def _apply_audio_config(self):
         audio = getattr(getattr(self.robot, "media", None), "audio", None)
