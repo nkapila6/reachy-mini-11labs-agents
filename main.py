@@ -8,6 +8,7 @@ just handles audio I/O, tool execution, and motor control.
 """
 
 import argparse
+import json
 import logging
 import os
 import signal
@@ -176,6 +177,21 @@ def main():
         callback_user_transcript=callback_user_transcript,
         callback_agent_response_correction=callback_agent_response_correction,
     )
+
+    # DEBUG: log raw client_tool_call WebSocket messages to see why parameters
+    # such as `url` are not reaching the registered tool functions.
+    _orig_handle_message = conversation._handle_message
+
+    def _handle_message_with_logging(message, ws=None):
+        if message.get("type") == "client_tool_call":
+            logger.info("RAW WS client_tool_call: %s", json.dumps(message))
+            logger.info(
+                "RAW WS client_tool_call payload: %s",
+                json.dumps(message.get("client_tool_call", message)),
+            )
+        return _orig_handle_message(message, ws)
+
+    conversation._handle_message = _handle_message_with_logging
 
     # --- start + signal handling ---
     logger.info("starting session with agent %s...", args.agent_id)

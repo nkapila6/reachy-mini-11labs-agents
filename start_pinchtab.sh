@@ -41,17 +41,20 @@ echo "=== starting pinchtab server ==="
 # Lower rate limit since we're exposed on the LAN.
 PINCHTAB_RATE_LIMIT_MAX=300 pinchtab server &
 SERVER_PID=$!
-sleep 2
+
+# Server config spawns a headed default instance automatically; give it a moment.
+sleep 3
 
 echo ""
-echo "=== starting headed Chrome instance ==="
-pinchtab instance start --mode headed
+echo "=== checking pinchtab instances ==="
+pinchtab instance list
 echo ""
 
 echo "=== pinchtab is running ==="
 echo "  server PID: $SERVER_PID"
 echo "  API: http://$(hostname -I 2>/dev/null | awk '{print $1}' || echo 'this-pc'):9867"
 echo "  token: $TOKEN"
+echo "  default instance mode: headed (set in pinchtab config via instanceDefaults.mode)"
 echo ""
 echo "  Put these in the robot's .env:"
 echo "    PINCHTAB_URL=http://<this-pc-ip>:9867"

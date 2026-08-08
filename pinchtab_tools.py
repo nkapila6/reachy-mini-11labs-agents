@@ -8,6 +8,7 @@ the page state through pinchtab's accessibility snapshot.
 import json
 import logging
 import os
+import time
 
 import requests
 
@@ -29,11 +30,31 @@ class PinchTabClient:
         self._maybe_pin_headed_instance()
 
     def _maybe_pin_headed_instance(self):
-        # Try once to discover a running headed instance; warn and continue if it fails.
-        try:
-            self.refresh_instance()
-        except requests.RequestException as e:
-            logger.warning("failed to discover headed instance, using default: %s", e)
+        # The headed instance may still be starting when we launch, or the
+        # pinchtab server may not be up yet. Poll until it is running or we
+        # exhaust our budget, then continue either way (don't crash - the
+        # user may have intentionally started only a headless instance).
+        attempts = 15
+        for attempt in range(attempts):
+            try:
+                self.refresh_instance()
+                if self.instance_id is not None:
+                    return
+            except requests.RequestException as e:
+                logger.warning(
+                    "headed instance discovery attempt %d/%d failed, retrying: %s",
+                    attempt + 1,
+                    attempts,
+                    e,
+                )
+            if attempt < attempts - 1:
+                time.sleep(1)
+
+        logger.error(
+            "no running headed instance found after %d attempts; "
+            "tool calls will be routed to the headless default and will not be visible",
+            attempts,
+        )
 
     def refresh_instance(self):
         """Re-query /instances and pin the first running headed instance."""
@@ -164,7 +185,8 @@ def open_form(params: dict) -> dict:
     if not url:
         return json.dumps({"error": "missing required parameter 'url'"})
 
-    result = pinchtab.navigate(url)
+    # Reuse the existing tab so we don't open a new one each call.
+    result = pinchtab.navigate(url, pinchtab.last_tab_id)
     tab_id = result.get("tabId") or pinchtab.last_tab_id
     snapshot = pinchtab.snapshot(tab_id)
     return {"tabId": tab_id, "snapshot": snapshot}
